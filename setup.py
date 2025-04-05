@@ -26,6 +26,7 @@ setup(
             'save_data = ros2_camera_lidar_fusion.save_sensor_data:main',
             'extract_points = ros2_camera_lidar_fusion.extract_points:main',
             'lidar_camera_projection = ros2_camera_lidar_fusion.lidar_camera_projection:main',
+            'lidar_camera_projection_rgb = ros2_camera_lidar_fusion.lidar_camera_projection_rgb:main'
         ],
     },
 )

@@ -1,0 +1,31 @@
+general:
+  camera_intrinsic_calibration: "camera_params.yaml"
+
+camera_matrix:
+  rows: 3
+  cols: 3
+  data: [[541.0616, 0.0, 680.9774],
+          [0.0, 541.0616, 352.0352],
+          [0.0, 0.0, 1.0]]
+
+distortion_coefficients:
+  rows: 1
+  cols: 5
+  data: [0.0, 0.0, 0.0, 0.0, 0.0]
+
+image_width: 1280
+image_height: 720
+
+rectification_matrix:
+  rows: 3
+  cols: 3
+  data: [1.0, 0.0, 0.0,
+          0.0, 1.0, 0.0,
+          0.0, 0.0, 1.0]
+
+projection_matrix:
+  rows: 3
+  cols: 4
+  data: [541.0616, 0.0, 680.9774, 0.0,
+          0.0, 541.0616, 352.0352, 0.0,
+          0.0, 0.0, 1.0, 0.0]

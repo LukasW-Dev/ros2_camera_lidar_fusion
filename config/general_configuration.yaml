@@ -1,14 +1,16 @@
 lidar:
-  lidar_topic: /rslidar_points
-  frame_id: rslidar
+  lidar_topic: /left_laser/pandar
+  colored_cloud_topic: /rgb_cloud
+  frame_id: left_laser_mount
 
 camera:
-  image_topic: /pcl_human_segmentation/camera/raw_image
-  projected_topic: /pcl_human_segmentation/camera/projected_image
+  # image_topic: /hazard_front/zed_node_front/left/image_rect_color
+  image_topic: /segmentation/image
+  projected_topic: /projected_image
   image_size:
-    width: 640
-    height: 480
-  frame_id: camera
+    width: 1280
+    height: 720
+  frame_id: hazard_front_left_camera_optical_frame
 
 chessboard:
   pattern_size:
@@ -20,8 +22,8 @@ general:
   config_folder: /ros2_ws/src/ros2_camera_lidar_fusion/config
   data_folder: /ros2_ws/src/ros2_camera_lidar_fusion/data
   correspondence_file: ros2_camera_lidar_fusion_correspondences.txt
-  camera_intrinsic_calibration: camera_intrinsic_calibration.yaml
-  camera_extrinsic_calibration: camera_extrinsic_calibration.yaml
+  camera_intrinsic_calibration: /home/lukas/ros2_ws/src/ros2_camera_lidar_fusion/param/intrinsics.yaml
+  camera_extrinsic_calibration: /home/lukas/ros2_ws/src/ros2_camera_lidar_fusion/param/extrinsics.yaml
   slop: 0.1
   max_file_saved: 10
   keyboard_listener: True

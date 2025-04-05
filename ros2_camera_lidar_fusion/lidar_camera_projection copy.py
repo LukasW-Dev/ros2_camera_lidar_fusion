@@ -116,15 +116,11 @@ class LidarCameraProjectionNode(Node):
 
     def sync_callback(self, image_msg: Image, lidar_msg: PointCloud2):
         cv_image = self.bridge.imgmsg_to_cv2(image_msg, desired_encoding='bgr8')
-        og_image = cv_image.copy()
 
         xyz_lidar = pointcloud2_to_xyz_array_fast(lidar_msg, skip_rate=self.skip_rate)
         n_points = xyz_lidar.shape[0]
         if n_points == 0:
             self.get_logger().warn("Empty cloud. Nothing to project.")
-            out_msg = self.bridge.cv2_to_imgmsg(cv_image, encoding='bgr8')
-            out_msg.header = image_msg.header
-            self.pub_image.publish(out_msg)
             return
 
         xyz_lidar_f64 = xyz_lidar.astype(np.float64)
@@ -140,18 +136,12 @@ class LidarCameraProjectionNode(Node):
 
         if xyz_cam_front.shape[0] == 0:
             self.get_logger().info("No points in front of camera (z>0).")
-            out_msg = self.bridge.cv2_to_imgmsg(cv_image, encoding='bgr8')
-            out_msg.header = image_msg.header
-            self.pub_image.publish(out_msg)
             return
 
         rvec = np.zeros((3,1), dtype=np.float64)
         tvec = np.zeros((3,1), dtype=np.float64)
         image_points, _ = cv2.projectPoints(
-            xyz_cam_front,
-            rvec, tvec,
-            self.camera_matrix,
-            self.dist_coeffs
+            xyz_cam_front, rvec, tvec, self.camera_matrix, self.dist_coeffs
         )
         image_points = image_points.reshape(-1, 2)
 
@@ -162,15 +152,10 @@ class LidarCameraProjectionNode(Node):
             u_int = int(u + 0.5)
             v_int = int(v + 0.5)
             if 0 <= u_int < w and 0 <= v_int < h:
-                cv2.circle(cv_image, (u_int, v_int), 2, (0, 255, 0), -1)
-                color = og_image[v_int, u_int]
+                color = cv_image[v_int, u_int]
                 r, g, b = int(color[2]), int(color[1]), int(color[0])  # OpenCV uses BGR
                 rgb_packed = struct.unpack('I', struct.pack('BBBB', b, g, r, 0))[0]
                 colored_points.append((*lidar_points_front[i], rgb_packed))
-
-        out_msg = self.bridge.cv2_to_imgmsg(cv_image, encoding='bgr8')
-        out_msg.header = image_msg.header
-        self.pub_image.publish(out_msg)
 
         if len(colored_points) == 0:
             self.get_logger().warn("No valid points projected onto the image.")

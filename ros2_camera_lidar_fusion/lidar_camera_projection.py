@@ -76,24 +76,42 @@ def pointcloud2_to_xyz_array_fast(cloud_msg: PointCloud2, skip_rate: int = 1) ->
 class LidarCameraProjectionNode(Node):
     def __init__(self):
         super().__init__('lidar_camera_projection_node')
+
+        # === LIDAR parameters ===
+        self.declare_parameter('lidar.lidar_topic', '/left_laser/pandar')
+        self.declare_parameter('lidar.colored_cloud_topic', '/rgb_cloud')
+        self.declare_parameter('lidar.frame_id', 'left_laser_mount')
+
+        # === CAMERA parameters ===
+        self.declare_parameter('camera.image_topic', '/segmentation/image')
+        self.declare_parameter('camera.projected_topic', '/projected_image')
+        self.declare_parameter('camera.image_size.width', 1280)
+        self.declare_parameter('camera.image_size.height', 720)
+        self.declare_parameter('camera.frame_id', 'hazard_front_left_camera_optical_frame')
+
+        # === GENERAL parameters ===
+        self.declare_parameter('general.config_folder', 'src/ros2_camera_lidar_fusion/config')
+        self.declare_parameter('general.camera_intrinsic_calibration', 'src/ros2_camera_lidar_fusion/param/intrinsics.yaml')
+        self.declare_parameter('general.camera_extrinsic_calibration', 'src/ros2_camera_lidar_fusion/param/extrinsics.yaml')
+        self.declare_parameter('general.slop', 0.1)
+        self.declare_parameter('general.max_file_saved', 10)
+        self.declare_parameter('general.keyboard_listener', True)
+        self.declare_parameter('general.get_intrinsics', True)
+        self.declare_parameter('general.get_extrinsics', True)
+
         
-        config_file = extract_configuration()
-        if config_file is None:
-            self.get_logger().error("Failed to extract configuration file.")
-            return
-        
-        config_folder = config_file['general']['config_folder']
-        extrinsic_yaml = os.path.join(config_folder, config_file['general']['camera_extrinsic_calibration'])
+        config_folder = self.get_parameter('general.config_folder').get_parameter_value()._string_value
+        extrinsic_yaml = self.get_parameter('general.camera_extrinsic_calibration').get_parameter_value()._string_value
         self.T_lidar_to_cam = load_extrinsic_matrix(extrinsic_yaml)
 
-        camera_yaml = os.path.join(config_folder, config_file['general']['camera_intrinsic_calibration'])
+        camera_yaml = self.get_parameter('general.camera_intrinsic_calibration').get_parameter_value()._string_value
         self.camera_matrix, self.dist_coeffs = load_camera_calibration(camera_yaml)
 
         self.get_logger().info("Loaded extrinsic:\n{}".format(self.T_lidar_to_cam))
         self.get_logger().info("Camera matrix:\n{}".format(self.camera_matrix))
 
-        lidar_topic = config_file['lidar']['lidar_topic']
-        image_topic = config_file['camera']['image_topic']
+        lidar_topic = self.get_parameter('lidar.lidar_topic').get_parameter_value().string_value
+        image_topic = self.get_parameter('camera.image_topic').get_parameter_value().string_value
 
         self.image_sub = Subscriber(self, Image, image_topic)
         self.lidar_sub = Subscriber(self, PointCloud2, lidar_topic)
@@ -105,8 +123,8 @@ class LidarCameraProjectionNode(Node):
         )
         self.ts.registerCallback(self.sync_callback)
 
-        projected_topic = config_file['camera']['projected_topic']
-        colored_cloud_topic = config_file['lidar']['colored_cloud_topic']
+        projected_topic = self.get_parameter('camera.projected_topic').get_parameter_value().string_value
+        colored_cloud_topic = self.get_parameter('lidar.colored_cloud_topic').get_parameter_value().string_value
 
         self.pub_image = self.create_publisher(Image, projected_topic, 1)
         self.pub_cloud = self.create_publisher(PointCloud2, colored_cloud_topic, 1)

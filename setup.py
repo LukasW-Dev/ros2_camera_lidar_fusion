@@ -10,7 +10,9 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
-        ('share/' + package_name + '/config', ['config/general_configuration.yaml']),
+                
+        # Include launch file
+        ('share/ros2_camera_lidar_fusion/launch', ['launch/ros2_camera_lidar_fusion.launch.py']),
     ],
     install_requires=['setuptools'],
     zip_safe=True,

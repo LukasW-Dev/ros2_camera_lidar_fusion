@@ -1,0 +1,14 @@
+from launch import LaunchDescription
+from launch_ros.actions import Node
+
+def generate_launch_description():
+
+    return LaunchDescription([
+        Node(
+            package='ros2_camera_lidar_fusion',
+            executable='lidar_camera_projection',
+            name='semantic_segmentation_node',
+            output='screen',
+            parameters=['src/ros2_camera_lidar_fusion/config/general_configuration.yaml']
+        )
+    ])

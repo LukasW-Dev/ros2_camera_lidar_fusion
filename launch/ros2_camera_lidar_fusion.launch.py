@@ -7,7 +7,7 @@ def generate_launch_description():
         Node(
             package='ros2_camera_lidar_fusion',
             executable='lidar_camera_projection',
-            name='semantic_segmentation_node',
+            name='lidar_camera_projection_node',
             output='screen',
             parameters=['src/ros2_camera_lidar_fusion/config/general_configuration.yaml']
         )

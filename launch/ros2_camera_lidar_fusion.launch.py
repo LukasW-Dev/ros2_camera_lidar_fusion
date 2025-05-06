@@ -9,6 +9,6 @@ def generate_launch_description():
             executable='lidar_camera_projection',
             name='lidar_camera_projection_node',
             output='screen',
-            parameters=['src/ros2_camera_lidar_fusion/config/general_configuration.yaml']
+            parameters=['/home/robolab/ros2_ws/src/ros2_camera_lidar_fusion/config/general_configuration.yaml']
         )
     ])

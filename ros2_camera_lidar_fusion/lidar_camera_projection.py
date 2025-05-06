@@ -13,7 +13,9 @@ from sensor_msgs.msg import Image, PointCloud2, PointField
 from cv_bridge import CvBridge
 from message_filters import Subscriber, ApproximateTimeSynchronizer
 
-from ros2_camera_lidar_fusion.read_yaml import extract_configuration
+from tf2_ros import Buffer, TransformListener
+from geometry_msgs.msg import TransformStamped
+import transformations as tf_transformations
 
 
 def load_extrinsic_matrix(yaml_path: str) -> np.ndarray:
@@ -77,7 +79,12 @@ class LidarCameraProjectionNode(Node):
     def __init__(self):
         super().__init__('lidar_camera_projection_node')
 
+        # Transform Listener for extrinsic parameter fetching
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
+
         # === LIDAR parameters ===
+        #self.declare_parameter('lidar.lidar_topic', '/obstacle_point_cloud')
         self.declare_parameter('lidar.lidar_topic', '/left_laser/pandar')
         self.declare_parameter('lidar.colored_cloud_topic', '/rgb_cloud')
         self.declare_parameter('lidar.frame_id', 'left_laser_mount')
@@ -90,9 +97,11 @@ class LidarCameraProjectionNode(Node):
         self.declare_parameter('camera.frame_id', 'hazard_front_left_camera_optical_frame')
 
         # === GENERAL parameters ===
-        self.declare_parameter('general.config_folder', 'src/ros2_camera_lidar_fusion/config')
-        self.declare_parameter('general.camera_intrinsic_calibration', 'src/ros2_camera_lidar_fusion/param/intrinsics.yaml')
-        self.declare_parameter('general.camera_extrinsic_calibration', 'src/ros2_camera_lidar_fusion/param/extrinsics.yaml')
+        self.declare_parameter('general.config_folder', '/home/robolab/ros2_ws/src/ros2_camera_lidar_fusion/config')
+        #self.declare_parameter('general.camera_intrinsic_calibration', '/home/robolab/ros2_ws/src/ros2_camera_lidar_fusion/param/fwt_intrinsics.yaml')
+        #self.declare_parameter('general.camera_extrinsic_calibration', '/home/robolab/ros2_ws/src/ros2_camera_lidar_fusion/param/fwt_extrinsics.yaml')
+        self.declare_parameter('general.camera_intrinsic_calibration', '/home/robolab/ros2_ws/src/ros2_camera_lidar_fusion/param/intrinsics.yaml')
+        self.declare_parameter('general.camera_extrinsic_calibration', '/home/robolab/ros2_ws/src/ros2_camera_lidar_fusion/param/extrinsics.yaml')
         self.declare_parameter('general.slop', 0.1)
         self.declare_parameter('general.max_file_saved', 10)
         self.declare_parameter('general.keyboard_listener', True)
@@ -101,13 +110,14 @@ class LidarCameraProjectionNode(Node):
 
         
         config_folder = self.get_parameter('general.config_folder').get_parameter_value()._string_value
-        extrinsic_yaml = self.get_parameter('general.camera_extrinsic_calibration').get_parameter_value()._string_value
-        self.T_lidar_to_cam = load_extrinsic_matrix(extrinsic_yaml)
+        #extrinsic_yaml = self.get_parameter('general.camera_extrinsic_calibration').get_parameter_value()._string_value
+        #self.T_lidar_to_cam = load_extrinsic_matrix(extrinsic_yaml)
+        self.T_lidar_to_cam = None
 
         camera_yaml = self.get_parameter('general.camera_intrinsic_calibration').get_parameter_value()._string_value
         self.camera_matrix, self.dist_coeffs = load_camera_calibration(camera_yaml)
 
-        self.get_logger().info("Loaded extrinsic:\n{}".format(self.T_lidar_to_cam))
+        #self.get_logger().info("Loaded extrinsic:\n{}".format(self.T_lidar_to_cam))
         self.get_logger().info("Camera matrix:\n{}".format(self.camera_matrix))
 
         lidar_topic = self.get_parameter('lidar.lidar_topic').get_parameter_value().string_value
@@ -118,7 +128,7 @@ class LidarCameraProjectionNode(Node):
 
         self.ts = ApproximateTimeSynchronizer(
             [self.image_sub, self.lidar_sub],
-            queue_size=100,
+            queue_size=10,
             slop=0.07
         )
         self.ts.registerCallback(self.sync_callback)
@@ -132,11 +142,45 @@ class LidarCameraProjectionNode(Node):
 
         self.skip_rate = 1
 
+    # get extrinsics from tf static
+    def get_extrinsic_matrix(self, target_frame: str, source_frame: str, timeout_sec: float = 1.0) -> np.ndarray:
+        try:
+            # Look up transform: source → target
+            trans: TransformStamped = self.tf_buffer.lookup_transform(
+                target_frame=target_frame,
+                source_frame=source_frame,
+                time=rclpy.time.Time(),
+                timeout=rclpy.duration.Duration(seconds=timeout_sec)
+            )
+
+            # Extract translation and quaternion
+            t = trans.transform.translation
+            q = trans.transform.rotation
+
+            translation = np.array([t.x, t.y, t.z])
+            quaternion = np.array([q.w, q.x, q.y, q.z])
+            self.get_logger().error(f"Quaternion: {quaternion} q: {q}")
+
+            # Convert quaternion to rotation matrix
+            T = tf_transformations.quaternion_matrix(quaternion)  # 4x4 matrix
+            T[0:3, 3] = translation
+
+            return T
+
+        except Exception as e:
+            self.get_logger().error(f"Failed to get transform from {source_frame} to {target_frame}: {e}")
+            raise
+
     def sync_callback(self, image_msg: Image, lidar_msg: PointCloud2):
         cv_image = self.bridge.imgmsg_to_cv2(image_msg, desired_encoding='bgr8')
         og_image = cv_image.copy()
 
         xyz_lidar = pointcloud2_to_xyz_array_fast(lidar_msg, skip_rate=self.skip_rate)
+
+        # Rough filter: remove LiDAR points that are unlikely to project into the image
+        # mask_roi = (xyz_lidar[:, 0] > 0.5) & (xyz_lidar[:, 0] < 10.0)  # Forward range
+        # xyz_lidar = xyz_lidar[mask_roi]
+
         n_points = xyz_lidar.shape[0]
         if n_points == 0:
             self.get_logger().warn("Empty cloud. Nothing to project.")
@@ -148,6 +192,10 @@ class LidarCameraProjectionNode(Node):
         xyz_lidar_f64 = xyz_lidar.astype(np.float64)
         ones = np.ones((n_points, 1), dtype=np.float64)
         xyz_lidar_h = np.hstack((xyz_lidar_f64, ones))
+
+        if self.T_lidar_to_cam is None:
+            self.T_lidar_to_cam = self.get_extrinsic_matrix(image_msg.header.frame_id, lidar_msg.header.frame_id)
+            self.get_logger().info("Loaded extrinsic:\n{}".format(self.T_lidar_to_cam))
 
         xyz_cam_h = xyz_lidar_h @ self.T_lidar_to_cam.T
         xyz_cam = xyz_cam_h[:, :3]
@@ -193,7 +241,7 @@ class LidarCameraProjectionNode(Node):
         if len(colored_points) == 0:
             self.get_logger().warn("No valid points projected onto the image.")
             return
-
+        
         # Create the PointCloud2 message
         fields = [
             PointField(name="x", offset=0, datatype=PointField.FLOAT32, count=1),
@@ -219,35 +267,7 @@ class LidarCameraProjectionNode(Node):
         cloud_msg.data = data
 
         self.pub_cloud.publish(cloud_msg)
-
-    def create_colored_pointcloud(self, original_msg, points, colors):
-        cloud_msg = PointCloud2()
-        cloud_msg.header = original_msg.header
-        cloud_msg.height = 1
-        cloud_msg.width = points.shape[0]
-
-        cloud_msg.fields = [
-            PointField(name="x", offset=0, datatype=PointField.FLOAT32, count=1),
-            PointField(name="y", offset=4, datatype=PointField.FLOAT32, count=1),
-            PointField(name="z", offset=8, datatype=PointField.FLOAT32, count=1),
-            PointField(name="rgb", offset=12, datatype=PointField.FLOAT32, count=1),
-        ]
-        cloud_msg.is_bigendian = False
-        cloud_msg.point_step = 16
-        cloud_msg.row_step = cloud_msg.point_step * cloud_msg.width
-        cloud_msg.is_dense = True
-
-        packed_rgb = np.array([
-            struct.unpack('f', struct.pack('I', (r << 16) | (g << 8) | b))[0]
-            for r, g, b in colors
-        ], dtype=np.float32)
-
-        cloud_data = np.column_stack((points, packed_rgb))
-        cloud_msg.data = cloud_data.tobytes()
-
-        return cloud_msg
-
-
+    
 def main(args=None):
     rclpy.init(args=args)
     node = LidarCameraProjectionNode()

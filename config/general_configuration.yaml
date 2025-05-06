@@ -1,6 +1,7 @@
 lidar_camera_projection:
   ros__parameters:
     lidar:
+      #lidar_topic: /obstacle_point_cloud
       lidar_topic: /left_laser/pandar
       colored_cloud_topic: /rgb_cloud
       frame_id: left_laser_mount
@@ -20,9 +21,12 @@ lidar_camera_projection:
       square_size_meters: 0.41
 
     general:
-      config_folder: src/ros2_camera_lidar_fusion/config
-      camera_intrinsic_calibration: src/ros2_camera_lidar_fusion/param/intrinsics.yaml
-      camera_extrinsic_calibration: src/ros2_camera_lidar_fusion/param/extrinsics.yaml
+      config_folder: ~/ros2_ws/src/ros2_camera_lidar_fusion/config
+      #camera_intrinsic_calibration: /home/robolab/ros2_ws/src/ros2_camera_lidar_fusion/param/fwt_intrinsics.yaml
+      #camera_extrinsic_calibration: /home/robolab/ros2_ws/src/ros2_camera_lidar_fusion/param/fwt_extrinsics.yaml
+      camera_intrinsic_calibration: /home/robolab/ros2_ws/src/ros2_camera_lidar_fusion/param/intrinsics.yaml
+      camera_extrinsic_calibration: /home/robolab/ros2_ws/src/ros2_camera_lidar_fusion/param/extrinsics.yaml
+      
       slop: 0.1
       max_file_saved: 10
       keyboard_listener: True

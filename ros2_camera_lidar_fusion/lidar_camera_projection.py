@@ -19,6 +19,10 @@ import transformations as tf_transformations
 
 
 def load_extrinsic_matrix(yaml_path: str) -> np.ndarray:
+    
+    # Expand ~ to the full home directory path
+    yaml_path = os.path.expanduser(yaml_path)
+    
     if not os.path.isfile(yaml_path):
         raise FileNotFoundError(f"No extrinsic file found: {yaml_path}")
 
@@ -35,6 +39,10 @@ def load_extrinsic_matrix(yaml_path: str) -> np.ndarray:
     return T
 
 def load_camera_calibration(yaml_path: str) -> (np.ndarray, np.ndarray):
+    
+    # Expand ~ to the full home directory path
+    yaml_path = os.path.expanduser(yaml_path)
+
     if not os.path.isfile(yaml_path):
         raise FileNotFoundError(f"No camera calibration file: {yaml_path}")
 
@@ -97,11 +105,10 @@ class LidarCameraProjectionNode(Node):
         self.declare_parameter('camera.frame_id', 'hazard_front_left_camera_optical_frame')
 
         # === GENERAL parameters ===
-        self.declare_parameter('general.config_folder', '/home/robolab/ros2_ws/src/ros2_camera_lidar_fusion/config')
-        #self.declare_parameter('general.camera_intrinsic_calibration', '/home/robolab/ros2_ws/src/ros2_camera_lidar_fusion/param/fwt_intrinsics.yaml')
-        #self.declare_parameter('general.camera_extrinsic_calibration', '/home/robolab/ros2_ws/src/ros2_camera_lidar_fusion/param/fwt_extrinsics.yaml')
-        self.declare_parameter('general.camera_intrinsic_calibration', '/home/robolab/ros2_ws/src/ros2_camera_lidar_fusion/param/intrinsics.yaml')
-        self.declare_parameter('general.camera_extrinsic_calibration', '/home/robolab/ros2_ws/src/ros2_camera_lidar_fusion/param/extrinsics.yaml')
+        #self.declare_parameter('general.camera_intrinsic_calibration', '~/ros2_ws/src/ros2_camera_lidar_fusion/param/fwt_intrinsics.yaml')
+        #self.declare_parameter('general.camera_extrinsic_calibration', '~/ros2_ws/src/ros2_camera_lidar_fusion/param/fwt_extrinsics.yaml')
+        self.declare_parameter('general.camera_intrinsic_calibration', '~/ros2_ws/src/ros2_camera_lidar_fusion/param/intrinsics.yaml')
+        self.declare_parameter('general.camera_extrinsic_calibration', '~/ros2_ws/src/ros2_camera_lidar_fusion/param/extrinsics.yaml')
         self.declare_parameter('general.slop', 0.1)
         self.declare_parameter('general.max_file_saved', 10)
         self.declare_parameter('general.keyboard_listener', True)
@@ -109,7 +116,7 @@ class LidarCameraProjectionNode(Node):
         self.declare_parameter('general.get_extrinsics', True)
 
         
-        config_folder = self.get_parameter('general.config_folder').get_parameter_value()._string_value
+        # config_folder = self.get_parameter('general.config_folder').get_parameter_value()._string_value
         #extrinsic_yaml = self.get_parameter('general.camera_extrinsic_calibration').get_parameter_value()._string_value
         #self.T_lidar_to_cam = load_extrinsic_matrix(extrinsic_yaml)
         self.T_lidar_to_cam = None

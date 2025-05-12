@@ -99,6 +99,7 @@ class LidarCameraProjectionNode(Node):
 
         # === CAMERA parameters ===
         self.declare_parameter('camera.image_topic', '/segmentation/image')
+        self.declare_parameter('camera.confidence_topic', '/segmentation/confidence')
         self.declare_parameter('camera.projected_topic', '/projected_image')
         self.declare_parameter('camera.image_size.width', 1280)
         self.declare_parameter('camera.image_size.height', 720)
@@ -129,12 +130,14 @@ class LidarCameraProjectionNode(Node):
 
         lidar_topic = self.get_parameter('lidar.lidar_topic').get_parameter_value().string_value
         image_topic = self.get_parameter('camera.image_topic').get_parameter_value().string_value
+        confidence_topic = self.get_parameter('camera.confidence_topic').get_parameter_value().string_value
 
         self.image_sub = Subscriber(self, Image, image_topic)
         self.lidar_sub = Subscriber(self, PointCloud2, lidar_topic)
+        self.confidence_sub = Subscriber(self, Image, confidence_topic)
 
         self.ts = ApproximateTimeSynchronizer(
-            [self.image_sub, self.lidar_sub],
+            [self.image_sub, self.confidence_sub, self.lidar_sub],
             queue_size=10,
             slop=0.07
         )
@@ -178,9 +181,11 @@ class LidarCameraProjectionNode(Node):
             self.get_logger().error(f"Failed to get transform from {source_frame} to {target_frame}: {e}")
             raise
 
-    def sync_callback(self, image_msg: Image, lidar_msg: PointCloud2):
+    def sync_callback(self, image_msg: Image, confidence_msg, lidar_msg: PointCloud2):
         cv_image = self.bridge.imgmsg_to_cv2(image_msg, desired_encoding='bgr8')
         og_image = cv_image.copy()
+
+        conf_image = self.bridge.imgmsg_to_cv2(confidence_msg, desired_encoding='32FC1')
 
         xyz_lidar = pointcloud2_to_xyz_array_fast(lidar_msg, skip_rate=self.skip_rate)
 
@@ -235,11 +240,19 @@ class LidarCameraProjectionNode(Node):
             u_int = int(u + 0.5)
             v_int = int(v + 0.5)
             if 0 <= u_int < w and 0 <= v_int < h:
+                # Draw the point on the image
                 cv2.circle(cv_image, (u_int, v_int), 2, (0, 255, 0), -1)
+                
+                # Get the color from the original image
                 color = og_image[v_int, u_int]
                 r, g, b = int(color[2]), int(color[1]), int(color[0])  # OpenCV uses BGR
                 rgb_packed = struct.unpack('I', struct.pack('BBBB', b, g, r, 0))[0]
-                colored_points.append((*lidar_points_front[i], rgb_packed))
+                
+                # Get the confidence value from the confidence map
+                confidence = float(conf_image[v_int, u_int])  # Assuming conf_image is a single-channel float32 image
+                
+                # Append the point with confidence to the list
+                colored_points.append((*lidar_points_front[i], rgb_packed, confidence))
 
         out_msg = self.bridge.cv2_to_imgmsg(cv_image, encoding='bgr8')
         out_msg.header = image_msg.header
@@ -254,13 +267,14 @@ class LidarCameraProjectionNode(Node):
             PointField(name="x", offset=0, datatype=PointField.FLOAT32, count=1),
             PointField(name="y", offset=4, datatype=PointField.FLOAT32, count=1),
             PointField(name="z", offset=8, datatype=PointField.FLOAT32, count=1),
-            PointField(name="rgb", offset=12, datatype=PointField.UINT32, count=1)
+            PointField(name="rgb", offset=12, datatype=PointField.UINT32, count=1),
+            PointField(name="conf", offset=16, datatype=PointField.FLOAT32, count=1)
         ]
 
-        point_step = 16  # 4 bytes each for x, y, z, and rgb
+        point_step = 20  # 4 bytes each for x, y, z, rgb and conf
         data = bytearray()
         for point in colored_points:
-            data.extend(struct.pack('fffI', *point))
+            data.extend(struct.pack('fffIf', *point))
 
         cloud_msg = PointCloud2()
         cloud_msg.header = lidar_msg.header

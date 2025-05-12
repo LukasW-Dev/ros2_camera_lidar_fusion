@@ -8,6 +8,7 @@ lidar_camera_projection:
 
     camera:
       image_topic: /segmentation/image
+      confidence_topic: /segmentation/confidence
       projected_topic: /projected_image
       image_size:
         width: 1280

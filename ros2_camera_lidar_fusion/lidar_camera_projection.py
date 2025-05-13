@@ -249,7 +249,8 @@ class LidarCameraProjectionNode(Node):
                 rgb_packed = struct.unpack('I', struct.pack('BBBB', b, g, r, 0))[0]
                 
                 # Get the confidence value from the confidence map
-                confidence = float(conf_image[v_int, u_int])  # Assuming conf_image is a single-channel float32 image
+                confidence = int(conf_image[v_int, u_int])  # Assuming conf_image is a single-channel float32 image
+                self.get_logger().warn(f"Confidence: {confidence}.")
                 
                 # Append the point with confidence to the list
                 colored_points.append((*lidar_points_front[i], rgb_packed, confidence))
@@ -274,7 +275,7 @@ class LidarCameraProjectionNode(Node):
         point_step = 20  # 4 bytes each for x, y, z, rgb and conf
         data = bytearray()
         for point in colored_points:
-            data.extend(struct.pack('fffIf', *point))
+            data.extend(struct.pack('fffII', *point))
 
         cloud_msg = PointCloud2()
         cloud_msg.header = lidar_msg.header

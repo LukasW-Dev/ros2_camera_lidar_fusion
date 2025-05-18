@@ -249,8 +249,7 @@ class LidarCameraProjectionNode(Node):
                 rgb_packed = struct.unpack('I', struct.pack('BBBB', b, g, r, 0))[0]
                 
                 # Get the confidence value from the confidence map
-                confidence = int(conf_image[v_int, u_int])  # Assuming conf_image is a single-channel float32 image
-                self.get_logger().warn(f"Confidence: {confidence}.")
+                confidence = int(conf_image[v_int, u_int])
                 
                 # Append the point with confidence to the list
                 colored_points.append((*lidar_points_front[i], rgb_packed, confidence))
@@ -269,7 +268,7 @@ class LidarCameraProjectionNode(Node):
             PointField(name="y", offset=4, datatype=PointField.FLOAT32, count=1),
             PointField(name="z", offset=8, datatype=PointField.FLOAT32, count=1),
             PointField(name="rgb", offset=12, datatype=PointField.UINT32, count=1),
-            PointField(name="conf", offset=16, datatype=PointField.FLOAT32, count=1)
+            PointField(name="label", offset=16, datatype=PointField.UINT32, count=1) # we put the confidence in the label field since there is alreadz a type in pcl for that
         ]
 
         point_step = 20  # 4 bytes each for x, y, z, rgb and conf

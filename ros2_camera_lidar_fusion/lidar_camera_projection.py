@@ -17,6 +17,8 @@ from tf2_ros import Buffer, TransformListener
 from geometry_msgs.msg import TransformStamped
 import transformations as tf_transformations
 
+visualize = True
+
 
 def load_extrinsic_matrix(yaml_path: str) -> np.ndarray:
     
@@ -93,9 +95,9 @@ class LidarCameraProjectionNode(Node):
 
         # === LIDAR parameters ===
         #self.declare_parameter('lidar.lidar_topic', '/obstacle_point_cloud')
-        self.declare_parameter('lidar.lidar_topic', '/left_laser/pandar')
+        self.declare_parameter('lidar.lidar_topic', '/livox/lidar')
         self.declare_parameter('lidar.colored_cloud_topic', '/rgb_cloud')
-        self.declare_parameter('lidar.frame_id', 'left_laser_mount')
+        self.declare_parameter('lidar.frame_id', 'livox_frame')
 
         # === CAMERA parameters ===
         self.declare_parameter('camera.image_topic', '/segmentation/image')
@@ -103,13 +105,13 @@ class LidarCameraProjectionNode(Node):
         self.declare_parameter('camera.projected_topic', '/projected_image')
         self.declare_parameter('camera.image_size.width', 1280)
         self.declare_parameter('camera.image_size.height', 720)
-        self.declare_parameter('camera.frame_id', 'hazard_front_left_camera_optical_frame')
+        self.declare_parameter('camera.frame_id', 'oak_rgb_camera_optical_frame')
 
         # === GENERAL parameters ===
         #self.declare_parameter('general.camera_intrinsic_calibration', '~/ros2_ws/src/ros2_camera_lidar_fusion/param/fwt_intrinsics.yaml')
         #self.declare_parameter('general.camera_extrinsic_calibration', '~/ros2_ws/src/ros2_camera_lidar_fusion/param/fwt_extrinsics.yaml')
-        self.declare_parameter('general.camera_intrinsic_calibration', '~/ros2_ws/src/ros2_camera_lidar_fusion/param/intrinsics.yaml')
-        self.declare_parameter('general.camera_extrinsic_calibration', '~/ros2_ws/src/ros2_camera_lidar_fusion/param/extrinsics.yaml')
+        self.declare_parameter('general.camera_intrinsic_calibration', '~/ros2_ws/src/ros2_camera_lidar_fusion/param/int_box.yaml')
+        self.declare_parameter('general.camera_extrinsic_calibration', '~/ros2_ws/src/ros2_camera_lidar_fusion/param/ext_box.yaml')
         self.declare_parameter('general.slop', 0.1)
         self.declare_parameter('general.max_file_saved', 10)
         self.declare_parameter('general.keyboard_listener', True)
@@ -118,14 +120,14 @@ class LidarCameraProjectionNode(Node):
 
         
         # config_folder = self.get_parameter('general.config_folder').get_parameter_value()._string_value
-        #extrinsic_yaml = self.get_parameter('general.camera_extrinsic_calibration').get_parameter_value()._string_value
-        #self.T_lidar_to_cam = load_extrinsic_matrix(extrinsic_yaml)
-        self.T_lidar_to_cam = None
+        extrinsic_yaml = self.get_parameter('general.camera_extrinsic_calibration').get_parameter_value()._string_value
+        self.T_lidar_to_cam = load_extrinsic_matrix(extrinsic_yaml)
+        #self.T_lidar_to_cam = None
 
         camera_yaml = self.get_parameter('general.camera_intrinsic_calibration').get_parameter_value()._string_value
         self.camera_matrix, self.dist_coeffs = load_camera_calibration(camera_yaml)
 
-        #self.get_logger().info("Loaded extrinsic:\n{}".format(self.T_lidar_to_cam))
+        self.get_logger().info("Loaded extrinsic:\n{}".format(self.T_lidar_to_cam))
         self.get_logger().info("Camera matrix:\n{}".format(self.camera_matrix))
 
         lidar_topic = self.get_parameter('lidar.lidar_topic').get_parameter_value().string_value
@@ -138,8 +140,8 @@ class LidarCameraProjectionNode(Node):
 
         self.ts = ApproximateTimeSynchronizer(
             [self.image_sub, self.confidence_sub, self.lidar_sub],
-            queue_size=10,
-            slop=0.07
+            queue_size=100,
+            slop=0.12
         )
         self.ts.registerCallback(self.sync_callback)
 
@@ -190,8 +192,13 @@ class LidarCameraProjectionNode(Node):
         xyz_lidar = pointcloud2_to_xyz_array_fast(lidar_msg, skip_rate=self.skip_rate)
 
         # Rough filter: remove LiDAR points that are unlikely to project into the image
-        # mask_roi = (xyz_lidar[:, 0] > 0.5) & (xyz_lidar[:, 0] < 10.0)  # Forward range
-        # xyz_lidar = xyz_lidar[mask_roi]
+        mask = (
+            (xyz_lidar[:, 0] > 0.5) &     # in front of sensor
+            (xyz_lidar[:, 0] < 15.0) &    # not too far
+            (xyz_lidar[:, 2] < 2.0)       # not above 2m
+        )
+
+        xyz_lidar = xyz_lidar[mask]
 
         n_points = xyz_lidar.shape[0]
         if n_points == 0:
@@ -240,12 +247,19 @@ class LidarCameraProjectionNode(Node):
             u_int = int(u + 0.5)
             v_int = int(v + 0.5)
             if 0 <= u_int < w and 0 <= v_int < h:
-                # Draw the point on the image
-                cv2.circle(cv_image, (u_int, v_int), 2, (0, 255, 0), -1)
+                
+                if visualize:
+                  # Draw the point on the image
+                  cv2.circle(cv_image, (u_int, v_int), 2, (0, 255, 0), -1)
                 
                 # Get the color from the original image
                 color = og_image[v_int, u_int]
                 r, g, b = int(color[2]), int(color[1]), int(color[0])  # OpenCV uses BGR
+
+                # Continue if point is sky ([135, 206, 235])
+                if r == 135 and g == 206 and b == 235:
+                    continue
+
                 rgb_packed = struct.unpack('I', struct.pack('BBBB', b, g, r, 0))[0]
                 
                 # Get the confidence value from the confidence map
@@ -254,9 +268,10 @@ class LidarCameraProjectionNode(Node):
                 # Append the point with confidence to the list
                 colored_points.append((*lidar_points_front[i], rgb_packed, confidence))
 
-        out_msg = self.bridge.cv2_to_imgmsg(cv_image, encoding='bgr8')
-        out_msg.header = image_msg.header
-        self.pub_image.publish(out_msg)
+        if visualize:
+          out_msg = self.bridge.cv2_to_imgmsg(cv_image, encoding='bgr8')
+          out_msg.header = image_msg.header
+          self.pub_image.publish(out_msg)
 
         if len(colored_points) == 0:
             self.get_logger().warn("No valid points projected onto the image.")

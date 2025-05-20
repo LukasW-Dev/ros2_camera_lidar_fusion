@@ -1,0 +1,34 @@
+lidar_camera_projection:
+  ros__parameters:
+    lidar:
+      #lidar_topic: /obstacle_point_cloud
+      lidar_topic: /livox/lidar
+      colored_cloud_topic: /rgb_cloud
+      frame_id: livox_frame
+
+    camera:
+      image_topic: /segmentation/image
+      confidence_topic: /segmentation/confidence
+      projected_topic: /projected_image
+      image_size:
+        width: 1280
+        height: 720
+      frame_id: oak_rgb_camera_optical_frame
+
+    chessboard:
+      pattern_size:
+        rows: 7
+        columns: 9
+      square_size_meters: 0.41
+
+    general:
+      #camera_intrinsic_calibration: ~/ros2_ws/src/ros2_camera_lidar_fusion/param/fwt_intrinsics.yaml
+      #camera_extrinsic_calibration: ~/ros2_ws/src/ros2_camera_lidar_fusion/param/fwt_extrinsics.yaml
+      camera_intrinsic_calibration: ~/ros2_ws/src/ros2_camera_lidar_fusion/param/int_box.yaml
+      camera_extrinsic_calibration: ~/ros2_ws/src/ros2_camera_lidar_fusion/param/ext_box.yaml
+      
+      slop: 0.1
+      max_file_saved: 10
+      keyboard_listener: True
+      get_intrinsics: True
+      get_extrinsics: True

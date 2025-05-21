@@ -94,45 +94,40 @@ class LidarCameraProjectionNode(Node):
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
         # === LIDAR parameters ===
-        #self.declare_parameter('lidar.lidar_topic', '/obstacle_point_cloud')
-        self.declare_parameter('lidar.lidar_topic', '/livox/lidar')
-        self.declare_parameter('lidar.colored_cloud_topic', '/rgb_cloud')
-        self.declare_parameter('lidar.frame_id', 'livox_frame')
+        self.declare_parameter('lidar.lidar_topic', None)
+        self.declare_parameter('lidar.colored_cloud_topic', None)
+        lidar_topic = self.get_parameter('lidar.lidar_topic').get_parameter_value().string_value
+        colored_cloud_topic = self.get_parameter('lidar.colored_cloud_topic').get_parameter_value().string_value
 
         # === CAMERA parameters ===
-        self.declare_parameter('camera.image_topic', '/segmentation/image')
-        self.declare_parameter('camera.confidence_topic', '/segmentation/confidence')
-        self.declare_parameter('camera.projected_topic', '/projected_image')
-        self.declare_parameter('camera.image_size.width', 1280)
-        self.declare_parameter('camera.image_size.height', 720)
-        self.declare_parameter('camera.frame_id', 'oak_rgb_camera_optical_frame')
+        self.declare_parameter('camera.image_topic', None)
+        self.declare_parameter('camera.confidence_topic', None)
+        self.declare_parameter('camera.projected_topic', None)
+        image_topic = self.get_parameter('camera.image_topic').get_parameter_value().string_value
+        confidence_topic = self.get_parameter('camera.confidence_topic').get_parameter_value().string_value
+        projected_topic = self.get_parameter('camera.projected_topic').get_parameter_value().string_value
 
         # === GENERAL parameters ===
-        #self.declare_parameter('general.camera_intrinsic_calibration', '~/ros2_ws/src/ros2_camera_lidar_fusion/param/fwt_intrinsics.yaml')
-        #self.declare_parameter('general.camera_extrinsic_calibration', '~/ros2_ws/src/ros2_camera_lidar_fusion/param/fwt_extrinsics.yaml')
-        self.declare_parameter('general.camera_intrinsic_calibration', '~/ros2_ws/src/ros2_camera_lidar_fusion/param/int_box.yaml')
-        self.declare_parameter('general.camera_extrinsic_calibration', '~/ros2_ws/src/ros2_camera_lidar_fusion/param/ext_box.yaml')
-        self.declare_parameter('general.slop', 0.1)
-        self.declare_parameter('general.max_file_saved', 10)
-        self.declare_parameter('general.keyboard_listener', True)
-        self.declare_parameter('general.get_intrinsics', True)
-        self.declare_parameter('general.get_extrinsics', True)
-
-        
-        # config_folder = self.get_parameter('general.config_folder').get_parameter_value()._string_value
-        extrinsic_yaml = self.get_parameter('general.camera_extrinsic_calibration').get_parameter_value()._string_value
-        self.T_lidar_to_cam = load_extrinsic_matrix(extrinsic_yaml)
-        #self.T_lidar_to_cam = None
-
+        self.declare_parameter('general.camera_intrinsic_calibration', None)
+        self.declare_parameter('general.camera_extrinsic_calibration', None)
+        self.declare_parameter('general.slop', None)
+        self.declare_parameter('general.max_queue_size', None)
         camera_yaml = self.get_parameter('general.camera_intrinsic_calibration').get_parameter_value()._string_value
+        extrinsic_yaml = self.get_parameter('general.camera_extrinsic_calibration').get_parameter_value()._string_value
+        slop = self.get_parameter('general.slop').get_parameter_value()._double_value
+        max_queue_size = self.get_parameter('general.max_queue_size').get_parameter_value()._integer_value
+
+        if extrinsic_yaml:
+          self.T_lidar_to_cam = load_extrinsic_matrix(extrinsic_yaml)
+        else:
+          self.T_lidar_to_cam = None
+
+        print("Camera yaml: " + camera_yaml)
         self.camera_matrix, self.dist_coeffs = load_camera_calibration(camera_yaml)
 
         self.get_logger().info("Loaded extrinsic:\n{}".format(self.T_lidar_to_cam))
         self.get_logger().info("Camera matrix:\n{}".format(self.camera_matrix))
 
-        lidar_topic = self.get_parameter('lidar.lidar_topic').get_parameter_value().string_value
-        image_topic = self.get_parameter('camera.image_topic').get_parameter_value().string_value
-        confidence_topic = self.get_parameter('camera.confidence_topic').get_parameter_value().string_value
 
         self.image_sub = Subscriber(self, Image, image_topic)
         self.lidar_sub = Subscriber(self, PointCloud2, lidar_topic)
@@ -140,13 +135,11 @@ class LidarCameraProjectionNode(Node):
 
         self.ts = ApproximateTimeSynchronizer(
             [self.image_sub, self.confidence_sub, self.lidar_sub],
-            queue_size=100,
-            slop=0.12
+            queue_size=max_queue_size,
+            slop=slop,
         )
         self.ts.registerCallback(self.sync_callback)
 
-        projected_topic = self.get_parameter('camera.projected_topic').get_parameter_value().string_value
-        colored_cloud_topic = self.get_parameter('lidar.colored_cloud_topic').get_parameter_value().string_value
 
         self.pub_image = self.create_publisher(Image, projected_topic, 1)
         self.pub_cloud = self.create_publisher(PointCloud2, colored_cloud_topic, 1)
@@ -198,7 +191,8 @@ class LidarCameraProjectionNode(Node):
             (xyz_lidar[:, 2] < 2.0)       # not above 2m
         )
 
-        xyz_lidar = xyz_lidar[mask]
+        # TODO
+        # xyz_lidar = xyz_lidar[mask]
 
         n_points = xyz_lidar.shape[0]
         if n_points == 0:

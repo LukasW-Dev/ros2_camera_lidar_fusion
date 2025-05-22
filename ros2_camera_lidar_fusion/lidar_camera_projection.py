@@ -98,6 +98,8 @@ class LidarCameraProjectionNode(Node):
         self.declare_parameter('lidar.colored_cloud_topic', None)
         lidar_topic = self.get_parameter('lidar.lidar_topic').get_parameter_value().string_value
         colored_cloud_topic = self.get_parameter('lidar.colored_cloud_topic').get_parameter_value().string_value
+        self.get_logger().info("Lidar topic: " + lidar_topic)
+        self.get_logger().info("Colored cloud topic: " + colored_cloud_topic)
 
         # === CAMERA parameters ===
         self.declare_parameter('camera.image_topic', None)
@@ -106,6 +108,9 @@ class LidarCameraProjectionNode(Node):
         image_topic = self.get_parameter('camera.image_topic').get_parameter_value().string_value
         confidence_topic = self.get_parameter('camera.confidence_topic').get_parameter_value().string_value
         projected_topic = self.get_parameter('camera.projected_topic').get_parameter_value().string_value
+        self.get_logger().info("Image topic: " + image_topic)
+        self.get_logger().info("Confidence topic: " + confidence_topic)
+        self.get_logger().info("Projected topic: " + projected_topic)
 
         # === GENERAL parameters ===
         self.declare_parameter('general.camera_intrinsic_calibration', None)
@@ -116,6 +121,10 @@ class LidarCameraProjectionNode(Node):
         extrinsic_yaml = self.get_parameter('general.camera_extrinsic_calibration').get_parameter_value()._string_value
         slop = self.get_parameter('general.slop').get_parameter_value()._double_value
         max_queue_size = self.get_parameter('general.max_queue_size').get_parameter_value()._integer_value
+        self.get_logger().info("Camera intrinsic calibration: " + camera_yaml)
+        self.get_logger().info("Camera extrinsic calibration: " + extrinsic_yaml)
+        self.get_logger().info("Slop: " + str(slop))
+        self.get_logger().info("Max queue size: " + str(max_queue_size))
 
         if extrinsic_yaml:
           self.T_lidar_to_cam = load_extrinsic_matrix(extrinsic_yaml)

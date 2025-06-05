@@ -173,7 +173,6 @@ class LidarCameraProjectionNode(Node):
 
             translation = np.array([t.x, t.y, t.z])
             quaternion = np.array([q.w, q.x, q.y, q.z])
-            self.get_logger().error(f"Quaternion: {quaternion} q: {q}")
 
             # Convert quaternion to rotation matrix
             T = tf_transformations.quaternion_matrix(quaternion)  # 4x4 matrix
@@ -186,21 +185,27 @@ class LidarCameraProjectionNode(Node):
             raise
 
     def sync_callback(self, image_msg: Image, confidence_msg, lidar_msg: PointCloud2):
+
+        # Measure the time it takes to process the callback
+        start_time = self.get_clock().now()
+
         cv_image = self.bridge.imgmsg_to_cv2(image_msg, desired_encoding='bgr8')
         og_image = cv_image.copy()
 
         conf_image = self.bridge.imgmsg_to_cv2(confidence_msg, desired_encoding='32FC1')
 
+        
         xyz_lidar = pointcloud2_to_xyz_array_fast(lidar_msg, skip_rate=self.skip_rate)
 
-        # Rough filter: remove LiDAR points that are unlikely to project into the image
-        mask = (
-            (xyz_lidar[:, 0] > 0.5) &     # in front of sensor
-            (xyz_lidar[:, 0] < 15.0) &    # not too far
-            (xyz_lidar[:, 2] < 2.0)       # not above 2m
-        )
+        # Seems to not make much difference (maybe if using more pointclouds)
+        # dists = np.linalg.norm(xyz_lidar, axis=1)   # Euclidean distance for each point
 
-        # TODO
+        # # Now build a mask based on radial distance AND any other criteria (e.g. height < 2 m)
+        # mask = (
+        #     (dists > 0.5) &        # farther than 0.5 m from the sensor
+        #     (dists < 10.0)       # closer than 10 m
+        # )
+
         # xyz_lidar = xyz_lidar[mask]
 
         n_points = xyz_lidar.shape[0]
@@ -224,88 +229,132 @@ class LidarCameraProjectionNode(Node):
 
         mask_in_front = (xyz_cam[:, 2] > 0.0)
         xyz_cam_front = xyz_cam[mask_in_front]
-        lidar_points_front = xyz_lidar[mask_in_front]
+        xyz_lidar_front = xyz_lidar[mask_in_front]
 
-        if xyz_cam_front.shape[0] == 0:
-            self.get_logger().info("No points in front of camera (z>0).")
+        # --- after computing xyz_cam_front and xyz_lidar_front, do:
+        # 1) Project all points at once:
+        rvec = np.zeros((3, 1), dtype=np.float64)
+        tvec = np.zeros((3, 1), dtype=np.float64)
+        image_points, _ = cv2.projectPoints(
+            xyz_cam_front, rvec, tvec,
+            self.camera_matrix, self.dist_coeffs
+        )
+        # image_points is (N,1,2) → reshape to (N,2)
+        image_points = image_points.reshape(-1, 2)
+
+        # 2) Convert to integer pixel coordinates (round):
+        uv = np.rint(image_points).astype(np.int32)   # shape = (N,2)
+        u_coords = uv[:, 0]
+        v_coords = uv[:, 1]
+
+        h, w = og_image.shape[:2]
+
+        # 3) Build a boolean “in‐bounds” mask:
+        in_bounds = (
+            (u_coords >= 0) & (u_coords < w) &
+            (v_coords >= 0) & (v_coords < h)
+        )
+
+        # Short‐circuit if nothing is in‐bounds:
+        if not np.any(in_bounds):
+            self.get_logger().warn("No points project inside image bounds.")
+            # publish empty, return, etc.
+            return
+
+        # 4) Filter arrays by in‐bounds:
+        u_in = u_coords[in_bounds]
+        v_in = v_coords[in_bounds]
+        lidar_in = xyz_lidar_front[in_bounds]      # (M,3) ℝ coordinates of the surviving points
+
+        # 5) Bulk‐index colors and confidences:
+        #    OpenCV stores images as BGR, so og_image[v, u] is (B,G,R)
+        #    conf_image is float32((H,W)) → round/cast to int if needed.
+        bgr_pixels = og_image[v_in, u_in]            # shape = (M,3)
+        conf_vals  = conf_image[v_in, u_in].astype(np.int32)  # shape = (M,)
+
+        # 6) Build a “sky”‐mask (r=135, g=206, b=235) in vector form:
+        #    Note: bgr_pixels[:,0] == B, bgr_pixels[:,1] == G, bgr_pixels[:,2] == R
+        is_sky = (
+            (bgr_pixels[:, 2] == 135) &
+            (bgr_pixels[:, 1] == 206) &
+            (bgr_pixels[:, 0] == 235)
+        )
+        keep_mask = ~is_sky
+
+        # 7) Final “kept” points:
+        lidar_kept   = lidar_in[keep_mask]        # (K,3)
+        bgr_kept     = bgr_pixels[keep_mask]       # (K,3)
+        conf_kept    = conf_vals[keep_mask]        # (K,)
+
+        if lidar_kept.shape[0] == 0:
+            self.get_logger().warn("All points fell on sky color.")
+            return
+        
+        # 8) If visualize=True, draw circles only at those final pixel coords:
+        if visualize:
+            # Loop over the much-smaller “kept” set (K points):
+            for u_i, v_i in zip(u_in, v_in):
+                # Note: u_i and v_i are already ints, but if you 
+                # used rint.astype(int) above, they’re safe to use directly.
+                cv2.circle(cv_image, (u_i, v_i), 2, (0, 255, 0), -1)
+
+            # Publish the image once, after drawing:
             out_msg = self.bridge.cv2_to_imgmsg(cv_image, encoding='bgr8')
             out_msg.header = image_msg.header
             self.pub_image.publish(out_msg)
-            return
 
-        rvec = np.zeros((3,1), dtype=np.float64)
-        tvec = np.zeros((3,1), dtype=np.float64)
-        image_points, _ = cv2.projectPoints(
-            xyz_cam_front,
-            rvec, tvec,
-            self.camera_matrix,
-            self.dist_coeffs
-        )
-        image_points = image_points.reshape(-1, 2)
+        # 9) Pack RGB into a single uint32:
+        #    struct.unpack('I', struct.pack('BBBB', b, g, r, 0))[0]
+        #    But you can vectorize that:
+        b = bgr_kept[:, 0].astype(np.uint32)
+        g = bgr_kept[:, 1].astype(np.uint32)
+        r = bgr_kept[:, 2].astype(np.uint32)
+        rgb_packed = (b << 0) | (g << 8) | (r << 16)
 
-        h, w = cv_image.shape[:2]
+        # 10) Build one big array of shape (K,5) with dtype float32, uint32, etc.
+        #    Format per‐row is [x, y, z, rgb, confidence]
+        dtype = np.dtype([
+            ("x",       np.float32),
+            ("y",       np.float32),
+            ("z",       np.float32),
+            ("rgb",     np.uint32),
+            ("label",   np.uint32),
+        ])
+        cloud_array = np.zeros(lidar_kept.shape[0], dtype=dtype)
+        cloud_array["x"]     = lidar_kept[:, 0].astype(np.float32)
+        cloud_array["y"]     = lidar_kept[:, 1].astype(np.float32)
+        cloud_array["z"]     = lidar_kept[:, 2].astype(np.float32)
+        cloud_array["rgb"]   = rgb_packed
+        cloud_array["label"] = conf_kept.astype(np.uint32)
 
-        colored_points = []
-        for i, (u, v) in enumerate(image_points):
-            u_int = int(u + 0.5)
-            v_int = int(v + 0.5)
-            if 0 <= u_int < w and 0 <= v_int < h:
-                
-                if visualize:
-                  # Draw the point on the image
-                  cv2.circle(cv_image, (u_int, v_int), 2, (0, 255, 0), -1)
-                
-                # Get the color from the original image
-                color = og_image[v_int, u_int]
-                r, g, b = int(color[2]), int(color[1]), int(color[0])  # OpenCV uses BGR
+        # 10) Convert that structured array directly to bytes:
+        raw_data = cloud_array.tobytes()
 
-                # Continue if point is sky ([135, 206, 235])
-                if r == 135 and g == 206 and b == 235:
-                    continue
-
-                rgb_packed = struct.unpack('I', struct.pack('BBBB', b, g, r, 0))[0]
-                
-                # Get the confidence value from the confidence map
-                confidence = int(conf_image[v_int, u_int])
-                
-                # Append the point with confidence to the list
-                colored_points.append((*lidar_points_front[i], rgb_packed, confidence))
-
-        if visualize:
-          out_msg = self.bridge.cv2_to_imgmsg(cv_image, encoding='bgr8')
-          out_msg.header = image_msg.header
-          self.pub_image.publish(out_msg)
-
-        if len(colored_points) == 0:
-            self.get_logger().warn("No valid points projected onto the image.")
-            return
-        
-        # Create the PointCloud2 message
-        fields = [
-            PointField(name="x", offset=0, datatype=PointField.FLOAT32, count=1),
-            PointField(name="y", offset=4, datatype=PointField.FLOAT32, count=1),
-            PointField(name="z", offset=8, datatype=PointField.FLOAT32, count=1),
-            PointField(name="rgb", offset=12, datatype=PointField.UINT32, count=1),
-            PointField(name="label", offset=16, datatype=PointField.UINT32, count=1) # we put the confidence in the label field since there is alreadz a type in pcl for that
-        ]
-
-        point_step = 20  # 4 bytes each for x, y, z, rgb and conf
-        data = bytearray()
-        for point in colored_points:
-            data.extend(struct.pack('fffII', *point))
-
+        # 11) Fill PointCloud2 fields and data:
         cloud_msg = PointCloud2()
         cloud_msg.header = lidar_msg.header
-        cloud_msg.height = 1  # Unstructured point cloud
-        cloud_msg.width = len(colored_points)  # Only projected points
-        cloud_msg.fields = fields
+        cloud_msg.height = 1
+        cloud_msg.width = cloud_array.shape[0]
         cloud_msg.is_bigendian = False
-        cloud_msg.point_step = point_step
-        cloud_msg.row_step = point_step * cloud_msg.width
-        cloud_msg.is_dense = True
-        cloud_msg.data = data
+        cloud_msg.point_step = cloud_array.dtype.itemsize  # should be 4+4+4+4+4 = 20
+        cloud_msg.row_step   = cloud_msg.point_step * cloud_msg.width
+        cloud_msg.is_dense   = True
+        cloud_msg.data       = raw_data
+
+        # Define fields:
+        cloud_msg.fields = [
+            PointField(name="x",     offset=0,  datatype=PointField.FLOAT32, count=1),
+            PointField(name="y",     offset=4,  datatype=PointField.FLOAT32, count=1),
+            PointField(name="z",     offset=8,  datatype=PointField.FLOAT32, count=1),
+            PointField(name="rgb",   offset=12, datatype=PointField.UINT32,  count=1),
+            PointField(name="label", offset=16, datatype=PointField.UINT32,  count=1),
+        ]
 
         self.pub_cloud.publish(cloud_msg)
+
+        end_time = self.get_clock().now()
+        elapsed_time = (end_time - start_time).nanoseconds / 1e6
+        self.get_logger().error(f"Processed {n_points} points in {elapsed_time:.2f} ms, projected {10} points.")
     
 def main(args=None):
     rclpy.init(args=args)

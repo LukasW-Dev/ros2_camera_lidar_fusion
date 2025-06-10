@@ -5,7 +5,7 @@ from launch_ros.actions import Node
 def generate_launch_description():
 
     # config_path = os.path.expanduser('~/ros2_ws/src/ros2_camera_lidar_fusion/config/box_config.yaml')
-    config_path = os.path.expanduser('~/ros2_ws/src/ros2_camera_lidar_fusion/config/general_configuration.yaml')
+    config_path = os.path.expanduser('~/semantic_ws/src/ros2_camera_lidar_fusion/config/general_configuration.yaml')
 
 
     return LaunchDescription([

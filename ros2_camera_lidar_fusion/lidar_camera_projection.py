@@ -137,10 +137,16 @@ class LidarCameraProjectionNode(Node):
         self.get_logger().info("Loaded extrinsic:\n{}".format(self.T_lidar_to_cam))
         self.get_logger().info("Camera matrix:\n{}".format(self.camera_matrix))
 
+        qos = rclpy.qos.QoSProfile(
+            reliability=rclpy.qos.ReliabilityPolicy.BEST_EFFORT,
+            depth=1,
+            history=rclpy.qos.HistoryPolicy.KEEP_LAST,
+        )
 
-        self.image_sub = Subscriber(self, Image, image_topic)
-        self.lidar_sub = Subscriber(self, PointCloud2, lidar_topic)
-        self.confidence_sub = Subscriber(self, Image, confidence_topic)
+        self.image_sub = Subscriber(self, Image, image_topic, qos_profile=qos)
+        self.lidar_sub = Subscriber(self, PointCloud2, lidar_topic, qos_profile=qos)
+        self.confidence_sub = Subscriber(self, Image, confidence_topic, qos_profile=qos)
+
 
         self.ts = ApproximateTimeSynchronizer(
             [self.image_sub, self.confidence_sub, self.lidar_sub],

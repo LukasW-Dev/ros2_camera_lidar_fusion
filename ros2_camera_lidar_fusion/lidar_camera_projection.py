@@ -139,13 +139,13 @@ class LidarCameraProjectionNode(Node):
 
         qos = rclpy.qos.QoSProfile(
             reliability=rclpy.qos.ReliabilityPolicy.BEST_EFFORT,
-            depth=1,
+            depth=10,
             history=rclpy.qos.HistoryPolicy.KEEP_LAST,
         )
 
-        self.image_sub = Subscriber(self, Image, image_topic, qos_profile=qos)
+        self.image_sub = Subscriber(self, Image, image_topic)
+        self.confidence_sub = Subscriber(self, Image, confidence_topic)
         self.lidar_sub = Subscriber(self, PointCloud2, lidar_topic, qos_profile=qos)
-        self.confidence_sub = Subscriber(self, Image, confidence_topic, qos_profile=qos)
 
 
         self.ts = ApproximateTimeSynchronizer(
@@ -160,7 +160,7 @@ class LidarCameraProjectionNode(Node):
         self.pub_cloud = self.create_publisher(PointCloud2, colored_cloud_topic, 1)
         self.bridge = CvBridge()
 
-        self.skip_rate = 1
+        self.skip_rate = 2
 
     # get extrinsics from tf static
     def get_extrinsic_matrix(self, target_frame: str, source_frame: str, timeout_sec: float = 1.0) -> np.ndarray:
@@ -191,6 +191,8 @@ class LidarCameraProjectionNode(Node):
             raise
 
     def sync_callback(self, image_msg: Image, confidence_msg, lidar_msg: PointCloud2):
+
+        #self.get_logger().info("Received synchronized messages.")
 
         # Measure the time it takes to process the callback
         start_time = self.get_clock().now()

@@ -2,6 +2,7 @@ ros2_camera_lidar_fusion:
   ros__parameters:
     lidar:
       #lidar_topic: /obstacle_point_cloud
+      #lidar_topic: /livox/lidar_192_168_100_116
       lidar_topic: /front_os/points
       colored_cloud_topic: /rgb_cloud
 
@@ -17,7 +18,7 @@ ros2_camera_lidar_fusion:
       square_size_meters: 0.41
 
     general:
-      camera_intrinsic_calibration: ~/semantic_ws/src/ros2_camera_lidar_fusion/param/intrinsics.yaml
+      camera_intrinsic_calibration: ~/semantic_ws/src/ros2_camera_lidar_fusion/param/warthog.yaml
       
       slop: 0.12
-      max_queue_size: 100
+      max_queue_size: 10

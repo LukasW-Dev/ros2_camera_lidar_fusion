@@ -229,8 +229,12 @@ class LidarCameraProjectionNode(Node):
         xyz_lidar_h = np.hstack((xyz_lidar_f64, ones))
 
         if self.T_lidar_to_cam is None:
+          try:
             self.T_lidar_to_cam = self.get_extrinsic_matrix(image_msg.header.frame_id, lidar_msg.header.frame_id)
             self.get_logger().info("Loaded extrinsic:\n{}".format(self.T_lidar_to_cam))
+          except Exception as e:
+            self.get_logger().error(f"Failed to get extrinsic matrix, TRY Again next callback")
+            return
 
         xyz_cam_h = xyz_lidar_h @ self.T_lidar_to_cam.T
         xyz_cam = xyz_cam_h[:, :3]
@@ -362,7 +366,7 @@ class LidarCameraProjectionNode(Node):
 
         end_time = self.get_clock().now()
         elapsed_time = (end_time - start_time).nanoseconds / 1e6
-        self.get_logger().error(f"Processed {n_points} points in {elapsed_time:.2f} ms, projected {10} points.")
+        #self.get_logger().error(f"Processed {n_points} points in {elapsed_time:.2f} ms, projected {10} points.")
     
 def main(args=None):
     rclpy.init(args=args)
